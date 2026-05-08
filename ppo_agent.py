@@ -62,20 +62,20 @@ class RolloutBuffer:
             gae = delta + gamma * lam * next_non_terminal * gae
             advantages[t] = gae
 
-        self.advantages = advantages
-        self.returns = advantages + self.values
+        self.advantages = advantages.detach()
+        self.returns = (advantages + self.values).detach()
 
     def get_minibatches(self, minibatch_size: int):
         """Yield random minibatches as dicts."""
         total = self.num_steps * self.num_envs
         indices = torch.randperm(total, device=self.device)
 
-        # Flatten all buffers to [total, ...]
+        # Flatten all buffers to [total, ...], detach to break computation graph
         flat_obs = self.obs.view(total, *self.obs_shape)
         flat_actions = self.actions.view(total)
         flat_log_probs = self.log_probs.view(total)
-        flat_advantages = self.advantages.view(total)
-        flat_returns = self.returns.view(total)
+        flat_advantages = self.advantages.view(total).detach()
+        flat_returns = self.returns.view(total).detach()
 
         # Advantage normalization per batch
         adv_mean = flat_advantages.mean()
