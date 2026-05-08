@@ -4,12 +4,14 @@ import numpy as np
 import torch
 import gymnasium as gym
 from config import Config
+from config_5090 import Config5090
 from env_wrapper import make_env
 from networks import CNNEncoder, Actor
 
 
-def evaluate(checkpoint_path: str, num_episodes: int = 10, record: bool = False):
-    config = Config()
+def evaluate(checkpoint_path: str, num_episodes: int = 10, record: bool = False,
+             use_5090: bool = False):
+    config = Config5090() if use_5090 else Config()
     device = config.device
 
     # Load model
@@ -67,6 +69,8 @@ if __name__ == "__main__":
     parser.add_argument("checkpoint", type=str, help="Path to checkpoint .pt file")
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--record", action="store_true")
+    parser.add_argument("--5090", action="store_true", dest="use_5090",
+                        help="Use 5090 config (feature_dim=512)")
     args = parser.parse_args()
 
-    evaluate(args.checkpoint, args.episodes, args.record)
+    evaluate(args.checkpoint, args.episodes, args.record, args.use_5090)
