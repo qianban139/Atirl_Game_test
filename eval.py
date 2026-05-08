@@ -2,6 +2,8 @@ import argparse
 from pathlib import Path
 import numpy as np
 import torch
+import ale_py
+import shimmy
 import gymnasium as gym
 from config import Config
 from config_5090 import Config5090
