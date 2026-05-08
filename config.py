@@ -18,7 +18,7 @@ class Config:
     minibatch_size = 256      # within each epoch
     lr = 2.5e-4
     value_coef = 0.5          # c1
-    entropy_coef = 0.01       # c2 (initial, annealed over training)
+    entropy_coef = 0.01       # c2, constant throughout training
     max_grad_norm = 0.5
 
     # ── ICM ──

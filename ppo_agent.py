@@ -95,6 +95,7 @@ class RolloutBuffer:
 
     def clear(self):
         self.pos = 0
+        self.rewards.zero_()
 
 
 class PPOTrainer:

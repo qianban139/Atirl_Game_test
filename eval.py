@@ -12,7 +12,7 @@ from networks import CNNEncoder, Actor
 
 
 def evaluate(checkpoint_path: str, num_episodes: int = 10, record: bool = False,
-             use_5090: bool = False):
+             use_5090: bool = False, no_life_loss: bool = False):
     config = Config5090() if use_5090 else Config()
     device = config.device
 
@@ -27,9 +27,11 @@ def evaluate(checkpoint_path: str, num_episodes: int = 10, record: bool = False,
     actor.eval()
 
     print(f"[Eval] Loaded checkpoint from step {ckpt.get('total_timesteps', '?')}")
+    print(f"[Eval] Life loss as episode end: {not no_life_loss}")
 
     render_mode = "rgb_array" if record else None
-    env = make_env(config.env_name, render_mode=render_mode)()
+    env = make_env(config.env_name, render_mode=render_mode,
+                   terminal_on_life_loss=not no_life_loss)()
     if record:
         env = gym.wrappers.RecordVideo(env, "videos", episode_trigger=lambda e: True)
 
@@ -73,6 +75,9 @@ if __name__ == "__main__":
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--5090", action="store_true", dest="use_5090",
                         help="Use 5090 config (feature_dim=512)")
+    parser.add_argument("--no-life-loss", action="store_true",
+                        help="Disable life-loss truncation (fair comparison with SB3)")
     args = parser.parse_args()
 
-    evaluate(args.checkpoint, args.episodes, args.record, args.use_5090)
+    evaluate(args.checkpoint, args.episodes, args.record, args.use_5090,
+             getattr(args, 'no_life_loss', False))

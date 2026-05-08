@@ -49,8 +49,8 @@ class ICMTrainer:
         phi_s = self.encoder(obs)
         phi_s_next = self.encoder(next_obs)
 
-        # Inverse dynamics loss
-        pred_actions = self.inverse_model(phi_s, phi_s_next)
+        # Inverse dynamics loss — detach encoder features (ICM optimizer doesn't include encoder)
+        pred_actions = self.inverse_model(phi_s.detach(), phi_s_next.detach())
         inverse_loss = F.cross_entropy(pred_actions, actions)
 
         # Forward dynamics loss
