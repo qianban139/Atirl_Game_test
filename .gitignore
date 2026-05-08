@@ -1,0 +1,25 @@
+# Model checkpoints (large binary files)
+checkpoints/*.pt
+checkpoints/*.zip
+
+# TensorBoard logs
+logs/
+
+# Recorded videos
+videos/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
