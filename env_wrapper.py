@@ -8,7 +8,7 @@ import torch
 def make_env(env_name: str, seed: int = 0, render_mode: str | None = None):
     """Create a single Atari environment with standard preprocessing."""
     def _init():
-        env = gym.make(env_name, render_mode=render_mode)
+        env = gym.make(env_name, frameskip=1, render_mode=render_mode)
 
         # Atari preprocessing wrappers (gymnasium built-in)
         env = gym.wrappers.AtariPreprocessing(
