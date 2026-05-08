@@ -1,4 +1,5 @@
 """Train a Stable-Baselines3 PPO agent on Donkey Kong as a benchmark baseline."""
+import numpy as np
 import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecFrameStack, DummyVecEnv
@@ -61,12 +62,12 @@ def evaluate_sb3(num_episodes: int = 10):
         rewards.append(ep_reward)
         print(f"  Episode {ep + 1}: {ep_reward:.0f}")
 
-    print(f"\n[SB3 Benchmark] Mean: {numpy.mean(rewards):.0f} ± {numpy.std(rewards):.0f}")
+    print(f"\n[SB3 Benchmark] Mean: {np.mean(rewards):.0f} ± {np.std(rewards):.0f}")
     env.close()
 
 
 if __name__ == "__main__":
-    import argparse, numpy as np
+    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true")
     parser.add_argument("--eval", action="store_true")
