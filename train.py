@@ -91,6 +91,7 @@ def train(profile: str = "base", use_icm: bool = True, resume_from: str | None =
             action_np = action.cpu().numpy()
             next_obs, raw_reward, terminated, truncated, _ = envs.step(action_np)
             done = terminated | truncated
+            raw_reward = raw_reward + config.survival_bonus  # survival incentive
             extrinsic_reward = np.clip(raw_reward, -1.0, 1.0)
 
             next_obs_tensor = torch.from_numpy(next_obs).float().to(config.device)
@@ -127,6 +128,15 @@ def train(profile: str = "base", use_icm: bool = True, resume_from: str | None =
             buffer.rewards = buffer.rewards + intrinsic_rewards
         else:
             intrinsic_rewards = torch.zeros(config.rollout_steps, config.num_envs, device=config.device)
+
+        # ── Entropy coefficient decay ──
+        if total_timesteps < config.entropy_decay_start:
+            config.entropy_coef = 0.03
+        elif total_timesteps > config.entropy_decay_end:
+            config.entropy_coef = config.entropy_coef_min
+        else:
+            progress = (total_timesteps - config.entropy_decay_start) / (config.entropy_decay_end - config.entropy_decay_start)
+            config.entropy_coef = 0.03 - progress * (0.03 - config.entropy_coef_min)
 
         # ── GAE ──
         with torch.no_grad():

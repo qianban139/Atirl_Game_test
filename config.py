@@ -18,12 +18,15 @@ class Config:
     minibatch_size = 256      # within each epoch
     lr = 2.5e-4
     value_coef = 0.5          # c1
-    entropy_coef = 0.01       # c2, constant throughout training
+    entropy_coef = 0.03       # c2, initial (higher = more exploration)
+    entropy_coef_min = 0.005  # floor for entropy coefficient
+    entropy_decay_start = 15_000_000  # start linearly decaying entropy
+    entropy_decay_end = 30_000_000    # end decay at this step
     max_grad_norm = 0.5
 
     # ── ICM ──
-    intrinsic_scale = 0.01    # beta
-    icm_lr_mult = 0.1         # eta: icm lr = lr * icm_lr_mult
+    intrinsic_scale = 0.02    # beta (increased for stronger curiosity)
+    icm_lr_mult = 0.05        # eta: slower ICM = novelty lasts longer
     forward_loss_weight = 0.8
     inverse_loss_weight = 0.2
 
@@ -32,6 +35,7 @@ class Config:
     save_interval = 500       # episodes between checkpoints
     eval_interval = 1_000_000 # timesteps between evaluations
     log_interval = 100        # episodes between logging
+    survival_bonus = 0.001    # reward per step alive
 
     # ── Network ──
     feature_dim = 256
