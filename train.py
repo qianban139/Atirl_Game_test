@@ -78,7 +78,8 @@ def train(profile: str = "base", use_icm: bool = True, resume_from: str | None =
         episode_count = ckpt.get("episode_count", 0)
         print(f"[Resume] Restored at step {total_timesteps:,}, episode {episode_count}")
 
-    start_time = time.time() - (total_timesteps / 750 if total_timesteps > 0 else 0)  # approximate elapsed
+    start_time = time.time() - (total_timesteps / 750 if total_timesteps > 0 else 0)
+    last_saved_episode = episode_count  # prevent duplicate saves
     print(f"[Training] Starting at step {total_timesteps:,}, target {config.total_timesteps:,} timesteps...")
 
     while total_timesteps < config.total_timesteps:
@@ -166,7 +167,8 @@ def train(profile: str = "base", use_icm: bool = True, resume_from: str | None =
                 logger.log_scalar("train/intrinsic_reward_mean", intrinsic_rewards.mean().item(), total_timesteps)
 
         # ── Save checkpoint ──
-        if episode_count > 0 and episode_count % config.save_interval == 0:
+        if episode_count > 0 and episode_count % config.save_interval == 0 and episode_count != last_saved_episode:
+            last_saved_episode = episode_count
             ckpt_path = Path("checkpoints") / f"ckpt_{total_timesteps}.pt"
             ckpt_data = {
                 "encoder": encoder.state_dict(),
