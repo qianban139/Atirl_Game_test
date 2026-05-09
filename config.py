@@ -42,4 +42,13 @@ class Config:
     # ── Derived ──
     @property
     def batch_size(self):
-        return self.num_envs * self.rollout_steps  # 1024
+        return self.num_envs * self.rollout_steps
+
+    @classmethod
+    def preset_5090(cls):
+        c = cls()
+        c.num_envs = 24
+        c.rollout_steps = 256
+        c.minibatch_size = 1024
+        c.feature_dim = 512
+        return c

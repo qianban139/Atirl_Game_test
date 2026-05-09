@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from config import Config
 
 
@@ -27,7 +26,6 @@ class RolloutBuffer:
         self.returns = torch.zeros(num_steps, num_envs, device=device)
 
         self.pos = 0
-        self.full = False
 
     def insert(self, obs, actions, rewards, values, log_probs, dones, next_obs):
         idx = self.pos
@@ -39,9 +37,6 @@ class RolloutBuffer:
         self.dones[idx].copy_(dones)
         self.next_obs[idx].copy_(next_obs)
         self.pos += 1
-
-    def is_full(self) -> bool:
-        return self.pos >= self.num_steps
 
     def compute_gae(self, last_values: torch.Tensor, gamma: float, lam: float):
         """Compute GAE advantages and returns."""

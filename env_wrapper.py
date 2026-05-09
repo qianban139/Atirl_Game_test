@@ -1,8 +1,6 @@
 import ale_py
 import shimmy
 import gymnasium as gym
-import numpy as np
-import torch
 
 
 def make_env(env_name: str, seed: int = 0, render_mode: str | None = None,

@@ -25,21 +25,19 @@ class ICMTrainer:
     def compute_intrinsic_reward(self, obs: torch.Tensor,
                                  actions: torch.Tensor,
                                  next_obs: torch.Tensor) -> torch.Tensor:
-        """Compute normalized intrinsic reward without computing gradients on encoder."""
+        """Compute normalized intrinsic reward. Entire method is under no_grad
+        since intrinsic reward is a fixed signal for PPO, not differentiated."""
         with torch.no_grad():
             phi_s = self.encoder(obs)
             phi_s_next = self.encoder(next_obs)
 
-        # Forward dynamics: predict next state encoding
-        action_onehot = F.one_hot(actions, num_classes=self.config.num_actions).float()
-        phi_hat_next = self.forward_model(phi_s, action_onehot)
+            action_onehot = F.one_hot(actions, num_classes=self.config.num_actions).float()
+            phi_hat_next = self.forward_model(phi_s, action_onehot)
 
-        # Intrinsic reward = prediction error
-        pred_error = ((phi_hat_next - phi_s_next) ** 2).mean(dim=1)
+            pred_error = ((phi_hat_next - phi_s_next) ** 2).mean(dim=1)
 
-        # Normalize with running stats
-        self.running_stats.update(pred_error)
-        intrinsic_reward = self.config.intrinsic_scale * self.running_stats.normalize(pred_error)
+            self.running_stats.update(pred_error)
+            intrinsic_reward = self.config.intrinsic_scale * self.running_stats.normalize(pred_error)
 
         return intrinsic_reward
 

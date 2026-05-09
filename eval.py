@@ -1,19 +1,17 @@
 import argparse
-from pathlib import Path
 import numpy as np
 import torch
 import ale_py
 import shimmy
 import gymnasium as gym
 from config import Config
-from config_5090 import Config5090
 from env_wrapper import make_env
 from networks import CNNEncoder, Actor
 
 
 def evaluate(checkpoint_path: str, num_episodes: int = 10, record: bool = False,
              use_5090: bool = False, no_life_loss: bool = False):
-    config = Config5090() if use_5090 else Config()
+    config = Config.preset_5090() if use_5090 else Config()
     device = config.device
 
     # Load model
