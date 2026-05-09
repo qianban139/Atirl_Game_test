@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from pathlib import Path
 import numpy as np
 import torch
@@ -40,8 +41,10 @@ def train():
     # ── Training state ──
     obs = torch.from_numpy(envs.reset()[0]).float().to(config.device)
     episode_rewards = np.zeros(config.num_envs)
+    raw_episode_rewards = np.zeros(config.num_envs)
     episode_lengths = np.zeros(config.num_envs)
     episode_count = 0
+    reward_history = deque(maxlen=100)
     best_mean_reward = -float("inf")
 
     total_timesteps = 0
@@ -57,10 +60,10 @@ def train():
                 action, log_prob, value, _ = ppo.get_action_and_value(obs)
 
             action_np = action.cpu().numpy()
-            next_obs, extrinsic_reward, terminated, truncated, _ = envs.step(action_np)
+            next_obs, raw_reward, terminated, truncated, _ = envs.step(action_np)
             done = terminated | truncated
 
-            extrinsic_reward = np.clip(extrinsic_reward, -1.0, 1.0)
+            extrinsic_reward = np.clip(raw_reward, -1.0, 1.0)
 
             next_obs_tensor = torch.from_numpy(next_obs).float().to(config.device)
             reward_tensor = torch.from_numpy(extrinsic_reward).float().to(config.device)
@@ -69,20 +72,21 @@ def train():
             buffer.insert(obs, action, reward_tensor, value, log_prob, done_tensor, next_obs_tensor)
 
             episode_rewards += extrinsic_reward
+            raw_episode_rewards += raw_reward
             episode_lengths += 1
 
             # Reset terminated envs
             for i in range(config.num_envs):
                 if done[i]:
+                    reward_history.append(raw_episode_rewards[i])
                     logger.log_episode(
                         episode_count,
-                        episode_rewards[i],
+                        raw_episode_rewards[i],
                         episode_lengths[i],
-                        0,  # stage (tracked via info if available)
-                        0.0,  # will be logged during update
-                        0.0,
+                        0, 0.0, 0.0,
                     )
                     episode_rewards[i] = 0
+                    raw_episode_rewards[i] = 0
                     episode_lengths[i] = 0
                     episode_count += 1
 
@@ -114,11 +118,13 @@ def train():
         if episode_count > 0 and episode_count % config.log_interval == 0:
             elapsed = time.time() - start_time
             fps = total_timesteps / elapsed
+            reward_avg = np.mean(reward_history) if reward_history else 0
             print(f"[{total_timesteps:>10,} steps | {episode_count:>5} eps] "
+                  f"reward={reward_avg:>7.0f} "
                   f"policy_loss={ppo_stats['policy_loss']:.4f} "
                   f"value_loss={ppo_stats['value_loss']:.4f} "
                   f"entropy={ppo_stats['entropy']:.4f} "
-                  f"icm_loss={icm_loss:.4f} "
+                  f"icm={icm_loss:.4f} "
                   f"fps={fps:.0f}")
 
             logger.log_scalar("train/policy_loss", ppo_stats["policy_loss"], total_timesteps)
