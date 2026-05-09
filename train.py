@@ -112,7 +112,9 @@ def train():
         ppo_stats = ppo.update(buffer)
 
         # ── ICM Update ──
+        torch.cuda.empty_cache()
         icm_loss = icm.update(flat_obs, flat_actions, flat_next_obs)
+        torch.cuda.empty_cache()
 
         # ── Logging ──
         if episode_count > 0 and episode_count % config.log_interval == 0:

@@ -67,16 +67,22 @@ class ICMTrainer:
         return loss
 
     def update(self, obs: torch.Tensor, actions: torch.Tensor,
-               next_obs: torch.Tensor) -> float:
-        """Single ICM update step. Returns loss value."""
-        loss = self.compute_loss(obs, actions, next_obs)
+               next_obs: torch.Tensor, minibatch_size: int = 256) -> float:
+        """ICM update step, processed in minibatches to limit VRAM."""
+        total = obs.shape[0]
+        losses = []
+        for start in range(0, total, minibatch_size):
+            end = min(start + minibatch_size, total)
+            idx = slice(start, end)
+            loss = self.compute_loss(obs[idx], actions[idx], next_obs[idx])
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(
-            list(self.inverse_model.parameters()) + list(self.forward_model.parameters()),
-            self.config.max_grad_norm,
-        )
-        self.optimizer.step()
+            self.optimizer.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(
+                list(self.inverse_model.parameters()) + list(self.forward_model.parameters()),
+                self.config.max_grad_norm,
+            )
+            self.optimizer.step()
+            losses.append(loss.item())
 
-        return loss.item()
+        return sum(losses) / len(losses)
