@@ -48,6 +48,7 @@ def train():
     start_time = time.time()
 
     print(f"[Training] Starting {config.total_timesteps:,} timesteps...")
+    Path("checkpoints").mkdir(parents=True, exist_ok=True)
 
     while total_timesteps < config.total_timesteps:
         # ── Collect rollout ──

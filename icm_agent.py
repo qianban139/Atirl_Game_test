@@ -45,18 +45,21 @@ class ICMTrainer:
 
     def compute_loss(self, obs: torch.Tensor, actions: torch.Tensor,
                      next_obs: torch.Tensor) -> torch.Tensor:
-        """Compute ICM loss (inverse + forward) with gradients."""
-        phi_s = self.encoder(obs)
-        phi_s_next = self.encoder(next_obs)
+        """Compute ICM loss (inverse + forward). Encoder is frozen here — ICM optimizer
+        does not include encoder params, so we use no_grad to avoid storing its
+        computation graph (saves ~10+ GB VRAM on 1024-sample batches)."""
+        with torch.no_grad():
+            phi_s = self.encoder(obs)
+            phi_s_next = self.encoder(next_obs)
 
-        # Inverse dynamics loss — detach encoder features (ICM optimizer doesn't include encoder)
-        pred_actions = self.inverse_model(phi_s.detach(), phi_s_next.detach())
+        # Inverse dynamics loss
+        pred_actions = self.inverse_model(phi_s, phi_s_next)
         inverse_loss = F.cross_entropy(pred_actions, actions)
 
         # Forward dynamics loss
         action_onehot = F.one_hot(actions, num_classes=self.config.num_actions).float()
-        phi_hat_next = self.forward_model(phi_s.detach(), action_onehot)
-        forward_loss = F.mse_loss(phi_hat_next, phi_s_next.detach())
+        phi_hat_next = self.forward_model(phi_s, action_onehot)
+        forward_loss = F.mse_loss(phi_hat_next, phi_s_next)
 
         loss = (self.config.inverse_loss_weight * inverse_loss
                 + self.config.forward_loss_weight * forward_loss)
