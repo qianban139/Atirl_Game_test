@@ -146,29 +146,40 @@ def train(resume_from=None):
         env.close()
 
         # (2) Train world model (K_wm updates)
+        wm_stats = {"recon": 0.0, "reward": 0.0, "cont": 0.0, "kl": 0.0}
         for _ in range(config.wm_updates):
             obs_b, act_b, rew_b, done_b = buffer.sample_sequences(
                 config.batch_size, config.seq_len, config.device)
-            loss_wm, _ = rssm.compute_world_model_loss(obs_b, act_b, rew_b, done_b)
+            loss_wm, stats = rssm.compute_world_model_loss(obs_b, act_b, rew_b, done_b)
             wm_optimizer.zero_grad()
             loss_wm.backward()
             nn.utils.clip_grad_norm_(rssm.parameters(), config.max_grad_norm)
             wm_optimizer.step()
+            for k in wm_stats: wm_stats[k] += stats[k] / config.wm_updates
 
         # (3) Train actor-critic (K_ac updates)
+        ac_total, ac_policy, ac_critic = 0.0, 0.0, 0.0
         for _ in range(config.ac_updates):
             start_h, start_z = buffer.sample_starts(config.imagination_starts, config.device)
-            imagine_and_train(rssm, actor, critic, ac_optimizer, start_h, start_z, config)
+            loss_ac, loss_p, loss_c = imagine_and_train(rssm, actor, critic, ac_optimizer, start_h, start_z, config)
+            ac_total += loss_ac / config.ac_updates
+            ac_policy += loss_p / config.ac_updates
+            ac_critic += loss_c / config.ac_updates
 
         # (4) Logging
         if iteration % config.log_interval == 0:
             elapsed = time.time() - start_time
             eval_rew = evaluate(rssm, actor, config)
             print(f"[{iteration:>5} iters | {total_env_steps:>10,} steps] "
-                  f"eval_reward={eval_rew:.0f} ep_rew={ep_reward:.0f} "
-                  f"time={elapsed/3600:.1f}h")
+                  f"R={eval_rew:>5.0f} ep={ep_reward:>5.0f} "
+                  f"recon={wm_stats['recon']:.3f} kl={wm_stats['kl']:.1f} "
+                  f"ac_p={ac_policy:.3f} ac_c={ac_critic:.3f} "
+                  f"t={elapsed/3600:.1f}h")
             logger.log_scalar("eval/reward", eval_rew, total_env_steps)
             logger.log_scalar("train/ep_reward", ep_reward, total_env_steps)
+            logger.log_scalar("train/wm_recon", wm_stats["recon"], total_env_steps)
+            logger.log_scalar("train/wm_kl", wm_stats["kl"], total_env_steps)
+            logger.log_scalar("train/ac_total", ac_total, total_env_steps)
 
         # (5) Save checkpoint
         if iteration % config.save_interval == 0:
