@@ -100,9 +100,9 @@ z_flat = z.reshape(B, 512)                     # flatten for concatenation
 | CNN Encoder | ~3.8M |
 | GRU + LN | ~1.6M |
 | Prior + Posterior MLPs | ~0.8M |
-| Decoder CNN | ~1.5M |
+| Decoder CNN | ~3.3M |
 | 4 prediction heads | ~0.01M |
-| **Total** | **~7.7M** |
+| **Total** | **~9.5M** |
 
 ---
 
@@ -128,7 +128,7 @@ for t = 0 to 63:
     p_post   = Posterior(h_t, Encoder(x_t))
     z_t ~ p_post                                   # training: posterior
     x̂_t     = Decoder(h_t, z_t)
-    r̂_t     = RewardMLP(h_t, z_t)
+    r̂_t     = RewardMLP(h_t, z_t)     # predicts r_t (reward received at step t, from a_{t-1} action)
     ĉ_t     = ContinueMLP(h_t, z_t)
 ```
 
@@ -137,7 +137,7 @@ for t = 0 to 63:
 ```
 L_recon  = (1/BT) Σ MSE(x̂_t, x_t)                          # pixel reconstruction
 L_reward = (1/BT) Σ MSE(r̂_t, symlog(r_t_actual))           # reward in symlog
-L_cont   = (1/BT) Σ BCE(ĉ_t, done_t)                       # terminal prediction
+L_cont   = (1/BT) Σ BCE(ĉ_t, 1 - done_t)                   # continue prediction (1=continues, 0=ends)
 
 KL_balanced = 0.8 * KL(sg[q] || p) + 0.2 * KL(q || sg[p]) # KL balancing
 KL_clipped  = max(KL_balanced, 1.0)                        # free bits
@@ -196,9 +196,26 @@ assert all(p.requires_grad for p in wm.parameters()), "WM params not restored!"
 
 If restoration is forgotten: WM backward produces zero gradients → WM never updates → silent training failure. The assertion catches this.
 
-### Continue Prediction
+### Symlog Transform
 
-Use `BCEWithLogitsLoss` (raw logits, no Sigmoid in the head) for numerical stability — avoids `log(0) = -inf` when sigmoid saturates.
+`symlog(x) = sign(x) * log(|x| + 1)`, inverse: `symexp(x) = sign(x) * (exp(|x|) - 1)`. Applied to reward targets and critic predictions/targets.
+
+### Optimizers
+
+| Optimizer | Parameters | LR | Grad Clip |
+|-----------|-----------|-----|-----------|
+| World Model (Adam) | Encoder, GRU, Prior, Posterior, Decoder, Reward, Continue | 3e-4 | 0.5 |
+| Actor-Critic (Adam) | Actor, Critic | 3e-5 | 0.5 |
+
+Actor-Critic uses lower LR than WM because imagination data is cheaper (infinite) and the critic needs to track a slowly-moving WM.
+
+### GRU LayerNorm
+
+GRUCell has no built-in normalization. Apply `h_t = LayerNorm(GRUCell([z_{t-1}, a_{t-1}], h_{t-1}))` after the GRU output. 512-dim LayerNorm.
+
+### Replay Buffer Latent Storage
+
+Each stored transition additionally stores `(h_t, z_t)` — the posterior latent state at that timestep — to enable direct sampling of imagination start states without re-computing RSSM unrolls. Storage: ~2 KB per transition (512-dim float32 × 2), negligible for 100k buffer.
 
 ### λ-Return Computation
 
@@ -207,7 +224,7 @@ G_H = V̂(h_H, z_H)                                  # bootstrap from last step
 for t = H-1 down to 0:
     G_t = r̂_t + γ · ĉ_t · ((1-λ)·V̂(h_{t+1},z_{t+1}) + λ·G_{t+1})
 
-Advantage_t = G_t - V̂(h_t, z_t)
+Advantage_t = G_t - V̂(h_t, z_t).detach()   # detach critic from actor gradient
 ```
 
 **Key difference from PPO GAE**: Uses `ĉ_t` (continue probability) instead of binary `(1-done)`. This softens credit assignment boundaries. All values in symlog space.
