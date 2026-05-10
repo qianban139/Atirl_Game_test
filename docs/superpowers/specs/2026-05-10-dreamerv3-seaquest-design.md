@@ -87,7 +87,7 @@ z_flat = z.reshape(B, 512)                     # flatten for concatenation
 
 | Head | Architecture | Input | Output |
 |------|-------------|-------|--------|
-| Decoder | Linear(1024→3136) → Reshape(64,7,7) → ConvT(64→64,k=3,s=1)→[9,9] → ConvT(64→32,k=4,s=2)→[20,20] → ConvT(32→1,k=8,s=4)→[84,84] | [h+z_flat] | [1,84,84] |
+| Decoder | Linear(1024→3136)→SiLU→Reshape(64,7,7) → ConvT(64→64,k=3,s=1)→ReLU→[9,9] → ConvT(64→32,k=4,s=2)→ReLU→[20,20] → ConvT(32→1,k=8,s=4)→sigmoid→[84,84] | [h+z_flat] | [1,84,84] |
 | Reward | Linear(1024→1) | [h+z_flat] | scalar (symlog) |
 | Continue | Linear(1024→1) (raw logits; BCEWithLogitsLoss) | [h+z_flat] | logit |
 | Actor | Linear(1024→18) | [h+z_flat] | action logits |
@@ -169,13 +169,14 @@ Starting from 1024 posterior states (h_0, z_0) sampled from the replay buffer:
 ```
 for t = 0 to 14:
     a_t ~ Actor(h_t, z_t)                   # With gradient
-    # World model forward pass — run normally so gradients flow through a_t into h_{t+1}
-    # WM parameters are frozen via requires_grad=False, NOT via torch.no_grad()
-    z_{t+1} ~ Prior(h_t)
-    h_{t+1} = GRU+LN(h_t, z_t, a_t)        # GRADIENT FLOWS: V(h_{t+1}) → h_{t+1} → a_t → Actor
     r̂_t = RewardMLP(h_t, z_t)
-    ĉ_t = ContinueMLP(h_t, z_t)
+    ĉ_t = torch.sigmoid(ContinueMLP(h_t, z_t))  # sigmoid: raw logit → probability
     v̂_t = Critic(h_t, z_t)                 # With gradient
+    # World model transition — h_{t+1} first, then z_{t+1} from h_{t+1}
+    # RSSM definition: h_t = GRU(h_{t-1}, z_{t-1}, a_{t-1}), z_t ~ Prior(h_t)
+    # So: h_{t+1} = GRU(h_t, z_t, a_t), then z_{t+1} ~ Prior(h_{t+1})
+    h_{t+1} = GRU+LN(h_t, z_t, a_t)        # GRADIENT FLOWS: V(h_{t+1}) → h_{t+1} → a_t → Actor
+    z_{t+1} ~ Prior(h_{t+1})               # Prior maps h → z at SAME timestep
 ```
 
 **Critical**: DO NOT use `torch.no_grad()` — it would block the gradient chain from Critic loss → h_t → a_t → Actor. Instead, freeze world model parameters before imagination:
@@ -215,7 +216,11 @@ GRUCell has no built-in normalization. Apply `h_t = LayerNorm(GRUCell([z_{t-1}, 
 
 ### Replay Buffer Latent Storage
 
-Each stored transition additionally stores `(h_t, z_t)` — the posterior latent state at that timestep — to enable direct sampling of imagination start states without re-computing RSSM unrolls. Storage: ~2 KB per transition (512-dim float32 × 2), negligible for 100k buffer.
+Each stored transition additionally stores `(h_t, z_t)` — the posterior latent state at that timestep — to enable direct sampling of imagination start states without re-computing RSSM unrolls. Storage: ~4 KB per transition (512-dim float32 × 2 tensors × 4 bytes), negligible for 100k buffer.
+
+### Environment Configuration
+
+`done_on_life_loss=False` — required for DreamerV3. Seaquest grants extra lives at score thresholds. The continue predictor must only see game-over as terminal. Life-loss fragmentation destroys usable sequence count and corrupts continue prediction.
 
 ### λ-Return Computation
 
@@ -232,14 +237,13 @@ Advantage_t = G_t - V̂(h_t, z_t).detach()   # detach critic from actor gradient
 ### Actor-Critic Losses
 
 ```python
-# Actor (PPO clipped surrogate + entropy bonus)
-ratio = exp(log_prob_new - log_prob_old)
-L_policy = -min(ratio * advantage, clip(ratio, 0.98, 1.02) * advantage)
-L_entropy = -eta * H(pi)                     # entropy bonus prevents action collapse
-L_actor = L_policy + L_entropy               # eta = 3e-4 (DreamerV3 Atari default)
+# Actor (REINFORCE + entropy — standard DreamerV3, no PPO clipping in imagination)
+L_policy = -log_prob * advantage               # standard REINFORCE
+L_entropy = -eta * H(pi)                       # entropy bonus prevents action collapse
+L_actor = L_policy + L_entropy                 # eta = 3e-4
 
-# Critic (MSE in symlog space)
-L_critic = MSE(V̂(h,z), G)
+# Critic (MSE in symlog space, target detached)
+L_critic = MSE(V̂(h,z), G.detach())            # detach G to avoid circular dependency
 
 # Combined
 L_ac = L_actor + L_critic
@@ -283,14 +287,7 @@ L_ac = L_actor + L_critic
 
 ### Reward Normalization
 
-```python
-# EMA percentile tracking (P5, P95) of episode returns
-S5  = ema(S5,  percentile_5(recent_returns),  momentum=0.99)
-S95 = ema(S95, percentile_95(recent_returns), momentum=0.99)
-normalized_return = (return - S95) / max(1.0, S95 - S5)
-```
-
-This prevents the critic's prediction target from shifting over training as the agent improves.
+Symlog transforms handle dynamic range: `symlog(x) = sign(x)*log(|x|+1)`. No additional normalization needed — symlog is applied to both reward targets and critic predictions, keeping the scale bounded regardless of absolute return magnitude. For logging only, episode returns are tracked in raw (real) space.
 
 ---
 
