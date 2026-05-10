@@ -35,16 +35,16 @@ class DreamerConfig:
     unimix = 0.01
 
     # ── Optimizers ──
-    wm_lr = 3e-4
+    wm_lr = 1e-4              # 3e-4 was 3x too fast, overfits replay
     ac_lr = 3e-5
-    max_grad_norm = 0.5
+    max_grad_norm = 100.0      # 0.5 clips nearly every gradient (DreamerV3 uses 100)
 
     # ── Lambda-return ──
     gamma = 0.997
     lam = 0.95
 
     # ── Actor-Critic ──
-    entropy_eta = 3e-4
+    entropy_eta = 3e-3         # 3e-4 too small for 18-action Seaquest
 
     # ── Logging ──
     log_interval = 10

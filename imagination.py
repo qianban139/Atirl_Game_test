@@ -25,8 +25,9 @@ def compute_lambda_returns(rewards, continues, values, gamma, lam):
     return returns
 
 
-def imagine_and_train(rssm, actor, critic, start_h, start_z, config):
-    """Imagine H-step trajectories from (start_h, start_z) and train actor-critic."""
+def imagine_and_train(rssm, actor, critic, ac_optimizer, start_h, start_z, config):
+    """Imagine H-step trajectories from (start_h, start_z) and train actor-critic.
+    ac_optimizer is created ONCE in train() and passed in — must NOT be recreated here."""
     N, H = start_h.shape[0], config.imagination_horizon
     device = start_h.device
 
@@ -88,6 +89,9 @@ def imagine_and_train(rssm, actor, critic, start_h, start_z, config):
 
     # ── Actor loss (REINFORCE + entropy) ──
     advantages = returns - all_values.detach()
+    # Percentile-based advantage normalization (DreamerV3 standard)
+    S = torch.quantile(advantages, 0.95) - torch.quantile(advantages, 0.05)
+    advantages = advantages / max(1.0, S)
     L_policy = -(all_log_probs * advantages.detach()).mean()
 
     # Entropy: compute from the stacked features
@@ -101,8 +105,7 @@ def imagine_and_train(rssm, actor, critic, start_h, start_z, config):
     # ── Critic loss (MSE in symlog space, target detached) ──
     L_critic = F.mse_loss(all_values, returns.detach())
 
-    # ── Update ──
-    ac_optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=config.ac_lr)
+    # ── Update (ac_optimizer passed from train(), momentum preserved across calls) ──
     L_ac = L_actor + L_critic
     ac_optimizer.zero_grad()
     L_ac.backward()

@@ -39,13 +39,14 @@ def evaluate(checkpoint_path, num_episodes=10, record=False):
         obs, _ = env.reset(); done = False; ep_r = 0.0
         h = torch.zeros(1, config.rssm_hidden, device=device)
         z = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=device)
+        prev_action = 0
         while not done:
             obs_t = torch.from_numpy(obs[-1:].astype(np.float32)/255.0).unsqueeze(0).to(device)
             with torch.no_grad():
                 feat = encoder(obs_t)
                 z_flat = z.reshape(1, -1)
-                a0 = torch.zeros(1, dtype=torch.long, device=device)
                 a_onehot = torch.zeros(1, config.num_actions, device=device)
+                a_onehot[0, prev_action] = 1.0
                 h = gru(torch.cat([z_flat, a_onehot], dim=-1), h)
                 logits = post(h, feat)
                 z, _ = sample_categorical(logits, config.unimix)
@@ -53,6 +54,7 @@ def evaluate(checkpoint_path, num_episodes=10, record=False):
                 action = torch.argmax(actor(features), -1).item()
             obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated; ep_r += reward
+            prev_action = action
         rewards.append(ep_r)
         print(f"  Episode {ep+1}: {ep_r:.0f}")
 

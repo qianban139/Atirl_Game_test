@@ -26,23 +26,17 @@ def evaluate(rssm, actor, config, num_eps=3):
         ep_reward = 0.0
         h = torch.zeros(1, config.rssm_hidden, device=config.device)
         z = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=config.device)
+        prev_action = 0
         while not done:
             obs_t = torch.from_numpy(obs[-1:].astype(np.float32) / 255.0).unsqueeze(0).to(config.device)
-            feat = rssm.encoder(obs_t)
-            z_flat = z.reshape(1, -1)
-            a0 = torch.zeros(1, dtype=torch.long, device=config.device)
-            a_onehot = torch.zeros(1, config.num_actions, device=config.device)
-            h = rssm.gru(torch.cat([z_flat, a_onehot], dim=-1), h)
-            logits = rssm.posterior(h, feat)
-            from rssm import sample_categorical
-            z, _ = sample_categorical(logits, config.unimix)
-            features = torch.cat([h, z.reshape(1, -1)], dim=-1)
             with torch.no_grad():
-                logits = actor(features)
-                action = torch.argmax(logits, dim=-1).item()
+                h, z = rssm.forward_step(h, z, torch.tensor([prev_action], device=config.device), obs_t)
+                features = torch.cat([h, z.reshape(1, -1)], dim=-1)
+                action = torch.argmax(actor(features), dim=-1).item()
             obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
             ep_reward += reward
+            prev_action = action
         total_rewards.append(ep_reward)
     env.close()
     return np.mean(total_rewards)
@@ -66,6 +60,7 @@ def train():
 
     rssm = RSSM(config, encoder, gru, prior, post, decoder, reward_head, continue_head)
     wm_optimizer = torch.optim.Adam(rssm.parameters(), lr=config.wm_lr)
+    ac_optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=config.ac_lr)
 
     # ── Buffer ──
     buffer = ReplayBuffer(config.buffer_capacity, (1, 84, 84), config.rssm_hidden)
@@ -112,10 +107,11 @@ def train():
         h_col = torch.zeros(1, config.rssm_hidden, device=config.device)
         z_col = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=config.device)
         ep_reward = 0.0
+        prev_action = 0  # initial NOOP before first step
         while not done:
             obs_t = torch.from_numpy(obs[-1:].astype(np.float32) / 255.0).unsqueeze(0).to(config.device)
             with torch.no_grad():
-                h_col, z_col = rssm.forward_step(h_col, z_col, torch.tensor([0], device=config.device), obs_t)
+                h_col, z_col = rssm.forward_step(h_col, z_col, torch.tensor([prev_action], device=config.device), obs_t)
                 features = torch.cat([h_col, z_col.reshape(1, -1)], dim=-1)
                 logits = actor(features)
                 action = torch.distributions.Categorical(logits=logits).sample().item()
@@ -125,9 +121,11 @@ def train():
             total_env_steps += 1
             ep_reward += reward
             obs = next_obs
+            prev_action = action
             if done:
                 h_col = torch.zeros(1, config.rssm_hidden, device=config.device)
                 z_col = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=config.device)
+                prev_action = 0
         env.close()
 
         # (2) Train world model (K_wm updates)
@@ -143,7 +141,7 @@ def train():
         # (3) Train actor-critic (K_ac updates)
         for _ in range(config.ac_updates):
             start_h, start_z = buffer.sample_starts(config.imagination_starts, config.device)
-            imagine_and_train(rssm, actor, critic, start_h, start_z, config)
+            imagine_and_train(rssm, actor, critic, ac_optimizer, start_h, start_z, config)
 
         # (4) Logging
         if iteration % config.log_interval == 0:
