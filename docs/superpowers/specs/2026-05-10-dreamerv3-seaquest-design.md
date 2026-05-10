@@ -89,7 +89,7 @@ z_flat = z.reshape(B, 512)                     # flatten for concatenation
 |------|-------------|-------|--------|
 | Decoder | Linear(1024→3136) → Reshape(64,7,7) → ConvT(64→64,k=3,s=1)→[9,9] → ConvT(64→32,k=4,s=2)→[20,20] → ConvT(32→1,k=8,s=4)→[84,84] | [h+z_flat] | [1,84,84] |
 | Reward | Linear(1024→1) | [h+z_flat] | scalar (symlog) |
-| Continue | Linear(1024→1) → Sigmoid | [h+z_flat] | ĉ ∈ [0,1] |
+| Continue | Linear(1024→1) (raw logits; BCEWithLogitsLoss) | [h+z_flat] | logit |
 | Actor | Linear(1024→18) | [h+z_flat] | action logits |
 | Critic | Linear(1024→1) | [h+z_flat] | scalar (symlog) |
 
@@ -110,9 +110,12 @@ z_flat = z.reshape(B, 512)                     # flatten for concatenation
 
 ### Replay Buffer
 
-- Stores sequences of T=64 consecutive transitions
-- Pool size: 100,000 sequences (rolling FIFO)
-- Each stored element: (obs, action, reward, done)
+- Stores transitions with episode ID to prevent cross-episode sampling
+- Pool size: 100,000 transitions (rolling FIFO with sequence sampling)
+- Each element: (obs, action, reward, done, episode_id)
+- **Episode boundary rule**: Sampled T=64 sequences MUST NOT cross episode boundaries. When `done[t]=True` at position t within a sampled window, the sequence is valid only if t = T-1 (the terminal state is the last element). Sequences that contain a done=True at t < T-1 are rejected and resampled.
+- The GRU hidden state is NOT carried across episode resets — after any `done=True`, the RSSM is re-initialized with `h_0 = zeros`, `z_0 = posterior(h_0, Encoder(x_0))` for the next episode.
+- For imagination: store a separate index of valid start states `(buffer_pos, episode_id)` where the state is non-terminal. Imagination only samples from non-terminal timesteps.
 
 ### Open-Loop RSSM Unroll
 
@@ -151,7 +154,8 @@ L_wm = β_recon·L_recon + β_reward·L_reward + β_cont·L_cont + β_kl·KL_cli
 | KL α | 0.8 | Asymmetric: prior gets 4× gradient |
 | Free bits | 1.0 nat | Guarantees z carries information |
 | Unimix | 1% | Prevents categorical saturation |
-| B (WM batch) | 8 | Reduced from 16 to avoid OOM on 24GB |
+| max_grad_norm | 0.5 | Prevents gradient explosion in 64-step BPTT |
+| B (WM batch) | 8 | Safe on 24GB |
 | T (sequence) | 64 | Standard DreamerV3 |
 
 ---
@@ -174,7 +178,27 @@ for t = 0 to 14:
     v̂_t = Critic(h_t, z_t)                 # With gradient
 ```
 
-**Critical**: DO NOT use `torch.no_grad()` — it would block the gradient chain from Critic loss → h_t → a_t → Actor. Instead, freeze world model parameters before imagination by setting `requires_grad=False` on Encoder, GRU, Prior, Decoder, Reward, and Continue parameters, then restore after. Only Actor and Critic parameters remain trainable during imagination. The GRU forward pass records the gradient path through `a_t` to `h_{t+1}` without updating WM weights.
+**Critical**: DO NOT use `torch.no_grad()` — it would block the gradient chain from Critic loss → h_t → a_t → Actor. Instead, freeze world model parameters before imagination:
+
+```python
+# Before imagination — freeze world model
+wm_params = {name: p.requires_grad for name, p in wm.named_parameters()}
+for p in wm.parameters():
+    p.requires_grad = False
+
+# ... imagination loop (h_t carries gradient through a_t to Actor) ...
+
+# After imagination — MUST restore or WM stops learning entirely
+for name, p in wm.named_parameters():
+    p.requires_grad = wm_params[name]
+assert all(p.requires_grad for p in wm.parameters()), "WM params not restored!"
+```
+
+If restoration is forgotten: WM backward produces zero gradients → WM never updates → silent training failure. The assertion catches this.
+
+### Continue Prediction
+
+Use `BCEWithLogitsLoss` (raw logits, no Sigmoid in the head) for numerical stability — avoids `log(0) = -inf` when sigmoid saturates.
 
 ### λ-Return Computation
 
@@ -191,9 +215,11 @@ Advantage_t = G_t - V̂(h_t, z_t)
 ### Actor-Critic Losses
 
 ```python
-# Actor (PPO clipped surrogate, same structure as original PPO code)
+# Actor (PPO clipped surrogate + entropy bonus)
 ratio = exp(log_prob_new - log_prob_old)
-L_actor = -min(ratio * advantage, clip(ratio, 0.98, 1.02) * advantage)
+L_policy = -min(ratio * advantage, clip(ratio, 0.98, 1.02) * advantage)
+L_entropy = -eta * H(pi)                     # entropy bonus prevents action collapse
+L_actor = L_policy + L_entropy               # eta = 3e-4 (DreamerV3 Atari default)
 
 # Critic (MSE in symlog space)
 L_critic = MSE(V̂(h,z), G)
@@ -201,6 +227,7 @@ L_critic = MSE(V̂(h,z), G)
 # Combined
 L_ac = L_actor + L_critic
 ```
+`eta = 3e-4`. Seaquest has 18 actions — without entropy bonus, the policy can collapse to 1-2 actions in imagination.
 
 | Parameter | Value | Reason |
 |-----------|-------|--------|
