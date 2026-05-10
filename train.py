@@ -42,7 +42,7 @@ def evaluate(rssm, actor, config, num_eps=3):
     return np.mean(total_rewards)
 
 
-def train():
+def train(resume_from=None):
     config = DreamerConfig()
     seed_everything(42)
     print(f"[Setup] Device: {config.device} | Env: {config.env_name}")
@@ -62,6 +62,22 @@ def train():
     wm_optimizer = torch.optim.Adam(rssm.parameters(), lr=config.wm_lr)
     ac_optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=config.ac_lr)
 
+    # ── Resume from checkpoint ──
+    if resume_from:
+        print(f"[Resume] Loading checkpoint: {resume_from}")
+        ckpt = torch.load(resume_from, map_location=config.device, weights_only=True)
+        rssm.load_state_dict(ckpt["rssm"])
+        actor.load_state_dict(ckpt["actor"])
+        critic.load_state_dict(ckpt["critic"])
+        if "wm_optimizer" in ckpt:
+            wm_optimizer.load_state_dict(ckpt["wm_optimizer"])
+        if "ac_optimizer" in ckpt:
+            ac_optimizer.load_state_dict(ckpt["ac_optimizer"])
+        total_env_steps_prev = ckpt.get("total_env_steps", 0)
+        print(f"[Resume] Restored at step {total_env_steps_prev:,}")
+    else:
+        total_env_steps_prev = 0
+
     # ── Buffer ──
     buffer = ReplayBuffer(config.buffer_capacity, (1, 84, 84), config.rssm_hidden)
 
@@ -69,30 +85,31 @@ def train():
     logger = Logger("logs/dreamer")
     Path("checkpoints").mkdir(parents=True, exist_ok=True)
 
-    # ── Seed collection (random policy) ──
-    print(f"[Seed] Collecting {config.seed_steps} random steps...")
-    env = make_env(config.env_name, done_on_life_loss=False)()
-    obs, _ = env.reset()
-    h = torch.zeros(1, config.rssm_hidden, device=config.device)
-    z = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=config.device)
-    for step in range(config.seed_steps):
-        action = env.action_space.sample()
-        next_obs, reward, terminated, truncated, _ = env.step(action)
-        done = terminated or truncated
-        obs_t = torch.from_numpy(obs[-1:].astype(np.float32) / 255.0).unsqueeze(0).to(config.device)
-        with torch.no_grad():
-            h, z = rssm.forward_step(h, z, torch.tensor([action], device=config.device), obs_t)
-        buffer.add(obs[-1:], action, reward, done, h[0].cpu().numpy(), z[0].cpu().numpy())
-        obs = next_obs
-        if done:
-            obs, _ = env.reset()
-            h = torch.zeros(1, config.rssm_hidden, device=config.device)
-            z = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=config.device)
-    env.close()
-    print(f"[Seed] Buffer size: {len(buffer)}")
+    # ── Seed collection (skip if resuming — buffer refills from on-policy data) ──
+    if not resume_from:
+        print(f"[Seed] Collecting {config.seed_steps} random steps...")
+        env = make_env(config.env_name, done_on_life_loss=False)()
+        obs, _ = env.reset()
+        h = torch.zeros(1, config.rssm_hidden, device=config.device)
+        z = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=config.device)
+        for step in range(config.seed_steps):
+            action = env.action_space.sample()
+            next_obs, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            obs_t = torch.from_numpy(obs[-1:].astype(np.float32) / 255.0).unsqueeze(0).to(config.device)
+            with torch.no_grad():
+                h, z = rssm.forward_step(h, z, torch.tensor([action], device=config.device), obs_t)
+            buffer.add(obs[-1:], action, reward, done, h[0].cpu().numpy(), z[0].cpu().numpy())
+            obs = next_obs
+            if done:
+                obs, _ = env.reset()
+                h = torch.zeros(1, config.rssm_hidden, device=config.device)
+                z = torch.zeros(1, config.rssm_stoch_categories, config.rssm_stoch_classes, device=config.device)
+        env.close()
+        print(f"[Seed] Buffer size: {len(buffer)}")
 
     # ── Main training loop ──
-    total_env_steps = config.seed_steps
+    total_env_steps = max(config.seed_steps, total_env_steps_prev)
     iteration = 0
     start_time = time.time()
     print(f"[Training] Starting: target {config.total_env_steps:,} env steps...")
@@ -159,6 +176,8 @@ def train():
                 "rssm": rssm.state_dict(),
                 "actor": actor.state_dict(),
                 "critic": critic.state_dict(),
+                "wm_optimizer": wm_optimizer.state_dict(),
+                "ac_optimizer": ac_optimizer.state_dict(),
                 "total_env_steps": total_env_steps,
             }
             torch.save(ckpt, f"checkpoints/dreamer_{total_env_steps}.pt")
@@ -169,4 +188,8 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
+    args = parser.parse_args()
+    train(resume_from=args.resume)
