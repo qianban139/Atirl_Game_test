@@ -1,58 +1,57 @@
+"""DreamerV3 hyperparameters for Atari Seaquest."""
 import torch
 
 
-class Config:
+class DreamerConfig:
     # ── Environment ──
-    env_name = "ALE/DonkeyKong-v5"
-    frame_stack = 4
+    env_name = "ALE/Seaquest-v5"
     image_size = 84
-    num_actions = 18          # full Atari action space
-    num_envs = 8              # parallel envs for PPO
+    num_actions = 18
 
-    # ── PPO ──
-    gamma = 0.99
-    lam = 0.95                # GAE lambda
-    clip_epsilon = 0.1
-    rollout_steps = 128       # T: steps per env per batch
-    ppo_epochs = 4            # K: update epochs per batch
-    minibatch_size = 256      # within each epoch
-    lr = 2.5e-4
-    value_coef = 0.5          # c1
-    entropy_coef = 0.03       # c2, initial (higher = more exploration)
-    entropy_coef_min = 0.005  # floor for entropy coefficient
-    entropy_decay_start = 15_000_000  # start linearly decaying entropy
-    entropy_decay_end = 30_000_000    # end decay at this step
-    max_grad_norm = 0.5
-
-    # ── ICM ──
-    intrinsic_scale = 0.02    # beta (increased for stronger curiosity)
-    icm_lr_mult = 0.05        # eta: slower ICM = novelty lasts longer
-    forward_loss_weight = 0.8
-    inverse_loss_weight = 0.2
+    # ── RSSM ──
+    rssm_hidden = 512
+    rssm_stoch_categories = 32
+    rssm_stoch_classes = 16
+    encoder_feat = 512
+    rssm_input = rssm_stoch_categories * rssm_stoch_classes + num_actions  # 530
 
     # ── Training ──
-    total_timesteps = 50_000_000
-    save_interval = 500       # episodes between checkpoints
-    eval_interval = 1_000_000 # timesteps between evaluations
-    log_interval = 100        # episodes between logging
-    survival_bonus = 0.001    # reward per step alive
+    total_env_steps = 1_000_000
+    batch_size = 8
+    seq_len = 64
+    seed_steps = 5000
+    wm_updates = 5
+    ac_updates = 5
+    imagination_horizon = 15
+    imagination_starts = 1024
 
-    # ── Network ──
-    feature_dim = 256
+    # ── World Model Loss weights ──
+    beta_recon = 1.0
+    beta_reward = 1.0
+    beta_cont = 1.0
+    beta_kl = 0.1
+    kl_alpha = 0.8
+    free_nats = 1.0
+    unimix = 0.01
+
+    # ── Optimizers ──
+    wm_lr = 3e-4
+    ac_lr = 3e-5
+    max_grad_norm = 0.5
+
+    # ── Lambda-return ──
+    gamma = 0.997
+    lam = 0.95
+
+    # ── Actor-Critic ──
+    entropy_eta = 3e-4
+
+    # ── Logging ──
+    log_interval = 10
+    save_interval = 100
+
+    # ── Buffer ──
+    buffer_capacity = 100_000
 
     # ── Device ──
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # ── Derived ──
-    @property
-    def batch_size(self):
-        return self.num_envs * self.rollout_steps
-
-    @classmethod
-    def preset_5090(cls):
-        c = cls()
-        c.num_envs = 24
-        c.rollout_steps = 256
-        c.minibatch_size = 1024
-        c.feature_dim = 512
-        return c
