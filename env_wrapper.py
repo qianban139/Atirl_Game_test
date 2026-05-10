@@ -4,8 +4,11 @@ import gymnasium as gym
 
 
 def make_env(env_name: str, seed: int = 0, render_mode: str | None = None,
-             terminal_on_life_loss: bool = True):
-    """Create a single Atari environment with standard preprocessing."""
+             terminal_on_life_loss: bool = True, done_on_life_loss: bool = None):
+    """Create a single Atari environment with standard preprocessing.
+    done_on_life_loss: if provided, overrides terminal_on_life_loss (DreamerV3 needs False)."""
+    if done_on_life_loss is not None:
+        terminal_on_life_loss = done_on_life_loss
     def _init():
         env = gym.make(env_name, frameskip=1, render_mode=render_mode)
 
