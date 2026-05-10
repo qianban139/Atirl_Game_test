@@ -8,7 +8,7 @@ from config import DreamerConfig
 from env_wrapper import make_env
 from networks import (
     CNNEncoder, GRUWithLN, Prior, Posterior, CNNDecoder,
-    RewardHead, ContinueHead, ActorHead, CriticHead,
+    RewardHead, ContinueHead, ActorHead, CriticHead, twohot_decode,
 )
 from rssm import RSSM
 from replay_buffer import ReplayBuffer
@@ -62,6 +62,12 @@ def train(resume_from=None):
     wm_optimizer = torch.optim.Adam(rssm.parameters(), lr=config.wm_lr)
     ac_optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=config.ac_lr)
 
+    # EMA slow critic for stable value bootstrap
+    slow_critic = CriticHead(bins=config.critic_bins).to(config.device)
+    slow_critic.load_state_dict(critic.state_dict())  # init as copy of fast critic
+    for p in slow_critic.parameters():
+        p.requires_grad = False
+
     # ── Resume from checkpoint ──
     if resume_from:
         print(f"[Resume] Loading checkpoint: {resume_from}")
@@ -69,6 +75,7 @@ def train(resume_from=None):
         rssm.load_state_dict(ckpt["rssm"])
         actor.load_state_dict(ckpt["actor"])
         critic.load_state_dict(ckpt["critic"])
+        slow_critic.load_state_dict(ckpt.get("slow_critic", ckpt["critic"]))
         if "wm_optimizer" in ckpt:
             wm_optimizer.load_state_dict(ckpt["wm_optimizer"])
         if "ac_optimizer" in ckpt:
@@ -161,7 +168,7 @@ def train(resume_from=None):
         ac_total, ac_policy, ac_critic = 0.0, 0.0, 0.0
         for _ in range(config.ac_updates):
             start_h, start_z = buffer.sample_starts(config.imagination_starts, config.device)
-            loss_ac, loss_p, loss_c = imagine_and_train(rssm, actor, critic, ac_optimizer, start_h, start_z, config)
+            loss_ac, loss_p, loss_c = imagine_and_train(rssm, actor, critic, slow_critic, ac_optimizer, start_h, start_z, config)
             ac_total += loss_ac / config.ac_updates
             ac_policy += loss_p / config.ac_updates
             ac_critic += loss_c / config.ac_updates
@@ -187,6 +194,7 @@ def train(resume_from=None):
                 "rssm": rssm.state_dict(),
                 "actor": actor.state_dict(),
                 "critic": critic.state_dict(),
+                "slow_critic": slow_critic.state_dict(),
                 "wm_optimizer": wm_optimizer.state_dict(),
                 "ac_optimizer": ac_optimizer.state_dict(),
                 "total_env_steps": total_env_steps,

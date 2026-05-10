@@ -5,7 +5,7 @@ import torch
 import gymnasium as gym
 from config import DreamerConfig
 from env_wrapper import make_env
-from networks import CNNEncoder, GRUWithLN, Prior, Posterior, ActorHead
+from networks import CNNEncoder, GRUWithLN, Prior, Posterior, ActorHead, CriticHead, twohot_decode
 from rssm import sample_categorical
 
 

@@ -1,4 +1,4 @@
-"""DreamerV3 hyperparameters for Atari Seaquest."""
+"""DreamerV3 hyperparameters for Atari Seaquest — aligned with paper spec."""
 import torch
 
 
@@ -16,8 +16,8 @@ class DreamerConfig:
     rssm_input = rssm_stoch_categories * rssm_stoch_classes + num_actions  # 530
 
     # ── Training ──
-    total_env_steps = 1_000_000
-    batch_size = 8
+    total_env_steps = 10_000_000
+    batch_size = 16             # paper default (8 was too small)
     seq_len = 64
     seed_steps = 5000
     wm_updates = 5
@@ -35,16 +35,23 @@ class DreamerConfig:
     unimix = 0.01
 
     # ── Optimizers ──
-    wm_lr = 1e-4              # 3e-4 was 3x too fast, overfits replay
+    wm_lr = 1e-4
     ac_lr = 3e-5
-    max_grad_norm = 100.0      # 0.5 clips nearly every gradient (DreamerV3 uses 100)
+    max_grad_norm = 100.0
+    adam_eps = 1e-8
+
+    # ── TwoHot Critic ──
+    critic_bins = 255
+    critic_low = -20.0
+    critic_high = 20.0
+    slow_critic_tau = 0.02          # EMA decay per step
 
     # ── Lambda-return ──
     gamma = 0.997
     lam = 0.95
 
     # ── Actor-Critic ──
-    entropy_eta = 3e-3         # 3e-4 too small for 18-action Seaquest
+    entropy_eta = 3e-3              # tuned for 18-action Seaquest
 
     # ── Logging ──
     log_interval = 10
@@ -55,3 +62,7 @@ class DreamerConfig:
 
     # ── Device ──
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    @property
+    def critic_bin_width(self):
+        return (self.critic_high - self.critic_low) / (self.critic_bins - 1)
