@@ -29,9 +29,9 @@ class DreamerConfig:
     beta_recon = 1.0
     beta_reward = 1.0
     beta_cont = 1.0
-    beta_kl = 0.1
+    beta_kl = 0.03             # reduced: let z encode more freely
     kl_alpha = 0.8
-    free_nats = 1.0
+    free_nats = 3.0            # 3x: force stochastic state to carry more information
     unimix = 0.01
 
     # ── Optimizers ──
