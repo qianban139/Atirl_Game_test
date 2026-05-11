@@ -1,19 +1,19 @@
-"""DreamerV3 hyperparameters for Atari Seaquest — aligned with paper spec."""
+"""DreamerV3 hyperparameters for Atari Q*bert — aligned with paper spec."""
 import torch
 
 
 class DreamerConfig:
     # ── Environment ──
-    env_name = "ALE/Seaquest-v5"
+    env_name = "ALE/Qbert-v5"
     image_size = 84
-    num_actions = 18
+    num_actions = 6
 
     # ── RSSM ──
     rssm_hidden = 512
     rssm_stoch_categories = 32
     rssm_stoch_classes = 16
     encoder_feat = 512
-    rssm_input = rssm_stoch_categories * rssm_stoch_classes + num_actions  # 530
+    rssm_input = rssm_stoch_categories * rssm_stoch_classes + num_actions  # 518
 
     # ── Training ──
     total_env_steps = 10_000_000
