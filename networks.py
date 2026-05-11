@@ -1,7 +1,19 @@
-"""DreamerV3 networks — paper-aligned: SiLU, LayerNorm pre-norm, TwoHot critic."""
+"""DreamerV3 networks — paper-aligned: SiLU, RMSNorm pre-norm, TwoHot critic."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+class RMSNorm(nn.Module):
+    """Root Mean Square Layer Normalization — DreamerV3 paper default."""
+    def __init__(self, normalized_shape, eps=1e-8):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(normalized_shape))
+        self.eps = eps
+
+    def forward(self, x):
+        rms = torch.sqrt(torch.mean(x.float() ** 2, dim=-1, keepdim=True) + self.eps)
+        return (x / rms * self.weight).to(x.dtype)
 
 
 def symlog(x):
@@ -19,11 +31,11 @@ class CNNEncoder(nn.Module):
     def __init__(self, feat_dim=512):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.LayerNorm([1, 84, 84]),
+            RMSNorm([1, 84, 84]),
             nn.Conv2d(1, 32, 8, 4), nn.SiLU(),
-            nn.LayerNorm([32, 20, 20]),
+            RMSNorm([32, 20, 20]),
             nn.Conv2d(32, 64, 4, 2), nn.SiLU(),
-            nn.LayerNorm([64, 9, 9]),
+            RMSNorm([64, 9, 9]),
             nn.Conv2d(64, 64, 3, 1), nn.SiLU(),
             nn.Flatten(),
         )
@@ -31,9 +43,9 @@ class CNNEncoder(nn.Module):
             out = self.conv(torch.zeros(1, 1, 84, 84))
             conv_dim = out.shape[1]
         self.fc = nn.Sequential(
-            nn.LayerNorm(conv_dim),
+            RMSNorm(conv_dim),
             nn.Linear(conv_dim, 1024), nn.SiLU(),
-            nn.LayerNorm(1024),
+            RMSNorm(1024),
             nn.Linear(1024, feat_dim),
         )
 
@@ -48,7 +60,7 @@ class GRUWithLN(nn.Module):
     def __init__(self, input_size, hidden_size):
         super().__init__()
         self.gru = nn.GRUCell(input_size, hidden_size)
-        self.ln = nn.LayerNorm(hidden_size)
+        self.ln = RMSNorm(hidden_size)
 
     def forward(self, x, h):
         return self.ln(self.gru(x, h))
@@ -62,9 +74,9 @@ class Prior(nn.Module):
         super().__init__()
         out = cats * classes
         self.net = nn.Sequential(
-            nn.LayerNorm(hidden),
+            RMSNorm(hidden),
             nn.Linear(hidden, 256), nn.SiLU(),
-            nn.LayerNorm(256),
+            RMSNorm(256),
             nn.Linear(256, out),
         )
 
@@ -78,9 +90,9 @@ class Posterior(nn.Module):
         super().__init__()
         out = cats * classes
         self.net = nn.Sequential(
-            nn.LayerNorm(hidden + feat),
+            RMSNorm(hidden + feat),
             nn.Linear(hidden + feat, 256), nn.SiLU(),
-            nn.LayerNorm(256),
+            RMSNorm(256),
             nn.Linear(256, out),
         )
 
@@ -95,15 +107,15 @@ class CNNDecoder(nn.Module):
     def __init__(self, feat_dim=1024):
         super().__init__()
         self.linear = nn.Sequential(
-            nn.LayerNorm(feat_dim),
+            RMSNorm(feat_dim),
             nn.Linear(feat_dim, 3136), nn.SiLU(),
         )
         self.convt = nn.Sequential(
-            nn.LayerNorm([64, 7, 7]),
+            RMSNorm([64, 7, 7]),
             nn.ConvTranspose2d(64, 64, 3, 1), nn.SiLU(),
-            nn.LayerNorm([64, 9, 9]),
+            RMSNorm([64, 9, 9]),
             nn.ConvTranspose2d(64, 32, 4, 2), nn.SiLU(),
-            nn.LayerNorm([32, 20, 20]),
+            RMSNorm([32, 20, 20]),
             nn.ConvTranspose2d(32, 1, 8, 4),
         )
 
@@ -120,9 +132,9 @@ class RewardHead(nn.Module):
     def __init__(self, feat_dim=1024, bins=255):
         super().__init__()
         self.net = nn.Sequential(
-            nn.LayerNorm(feat_dim),
+            RMSNorm(feat_dim),
             nn.Linear(feat_dim, 256), nn.SiLU(),
-            nn.LayerNorm(256),
+            RMSNorm(256),
             nn.Linear(256, bins),
         )
 
@@ -135,9 +147,9 @@ class ContinueHead(nn.Module):
     def __init__(self, feat_dim=1024):
         super().__init__()
         self.net = nn.Sequential(
-            nn.LayerNorm(feat_dim),
+            RMSNorm(feat_dim),
             nn.Linear(feat_dim, 256), nn.SiLU(),
-            nn.LayerNorm(256),
+            RMSNorm(256),
             nn.Linear(256, 1),
         )
 
@@ -150,11 +162,11 @@ class ActorHead(nn.Module):
     def __init__(self, feat_dim=1024, num_actions=18):
         super().__init__()
         self.net = nn.Sequential(
-            nn.LayerNorm(feat_dim),
+            RMSNorm(feat_dim),
             nn.Linear(feat_dim, 512), nn.SiLU(),
-            nn.LayerNorm(512),
+            RMSNorm(512),
             nn.Linear(512, 256), nn.SiLU(),
-            nn.LayerNorm(256),
+            RMSNorm(256),
             nn.Linear(256, num_actions),
         )
 
@@ -168,11 +180,11 @@ class CriticHead(nn.Module):
         super().__init__()
         self.bins = bins
         self.net = nn.Sequential(
-            nn.LayerNorm(feat_dim),
+            RMSNorm(feat_dim),
             nn.Linear(feat_dim, 512), nn.SiLU(),
-            nn.LayerNorm(512),
+            RMSNorm(512),
             nn.Linear(512, 256), nn.SiLU(),
-            nn.LayerNorm(256),
+            RMSNorm(256),
             nn.Linear(256, bins),
         )
 
