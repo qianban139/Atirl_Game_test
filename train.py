@@ -1,4 +1,4 @@
-"""DreamerV3 training loop for Atari Seaquest."""
+"""DreamerV3 training loop for Atari Q*bert."""
 import time
 from pathlib import Path
 import numpy as np
@@ -55,7 +55,7 @@ def train(resume_from=None):
     decoder = CNNDecoder().to(config.device)
     reward_head = RewardHead().to(config.device)
     continue_head = ContinueHead().to(config.device)
-    actor = ActorHead().to(config.device)
+    actor = ActorHead(num_actions=config.num_actions).to(config.device)
     critic = CriticHead().to(config.device)
 
     rssm = RSSM(config, encoder, gru, prior, post, decoder, reward_head, continue_head)

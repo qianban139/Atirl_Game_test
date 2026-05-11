@@ -159,7 +159,7 @@ class ContinueHead(nn.Module):
 
 class ActorHead(nn.Module):
     """Policy: features → action logits (2 hidden layers)."""
-    def __init__(self, feat_dim=1024, num_actions=18):
+    def __init__(self, feat_dim=1024, num_actions):
         super().__init__()
         self.net = nn.Sequential(
             RMSNorm(feat_dim),

@@ -1,4 +1,4 @@
-"""Evaluate a trained DreamerV3 checkpoint on Seaquest."""
+"""Evaluate a trained DreamerV3 checkpoint on Q*bert."""
 import argparse
 import numpy as np
 import torch
@@ -18,7 +18,7 @@ def evaluate(checkpoint_path, num_episodes=10, record=False):
     gru = GRUWithLN(config.rssm_input, config.rssm_hidden).to(device)
     prior = Prior(hidden=config.rssm_hidden, cats=config.rssm_stoch_categories, classes=config.rssm_stoch_classes).to(device)
     post = Posterior(hidden=config.rssm_hidden, feat=config.encoder_feat, cats=config.rssm_stoch_categories, classes=config.rssm_stoch_classes).to(device)
-    actor = ActorHead().to(device)
+    actor = ActorHead(num_actions=config.num_actions).to(device)
 
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
     # Load RSSM sub-modules from the saved rssm state dict

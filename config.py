@@ -51,7 +51,7 @@ class DreamerConfig:
     lam = 0.95
 
     # ── Actor-Critic ──
-    entropy_eta = 3e-3              # tuned for 18-action Seaquest
+    entropy_eta = 3e-3              # tuned; 6-action Q*bert may benefit from 5e-3
 
     # ── Logging ──
     log_interval = 10
