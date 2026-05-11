@@ -1,19 +1,19 @@
-"""DreamerV3 hyperparameters for Atari Q*bert — aligned with paper spec."""
+"""DreamerV3 hyperparameters for Atari Circus — aligned with paper spec."""
 import torch
 
 
 class DreamerConfig:
     # ── Environment ──
-    env_name = "ALE/Qbert-v5"
+    env_name = "ALE/Circus-v5"
     image_size = 84
-    num_actions = 6
+    num_actions = 4
 
     # ── RSSM ──
     rssm_hidden = 512
     rssm_stoch_categories = 32
     rssm_stoch_classes = 16
     encoder_feat = 512
-    rssm_input = rssm_stoch_categories * rssm_stoch_classes + num_actions  # 518
+    rssm_input = rssm_stoch_categories * rssm_stoch_classes + num_actions  # 516
 
     # ── Training ──
     total_env_steps = 10_000_000
@@ -51,7 +51,7 @@ class DreamerConfig:
     lam = 0.95
 
     # ── Actor-Critic ──
-    entropy_eta = 3e-3              # tuned; 6-action Q*bert may benefit from 5e-3
+    entropy_eta = 3e-3              # tuned for stability with small action space
 
     # ── Logging ──
     log_interval = 10
