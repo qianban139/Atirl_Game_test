@@ -52,18 +52,19 @@ def train(resume_from=None):
     gru = GRUWithLN(config.rssm_input, config.rssm_hidden).to(config.device)
     prior = Prior(hidden=config.rssm_hidden, cats=config.rssm_stoch_categories, classes=config.rssm_stoch_classes).to(config.device)
     post = Posterior(hidden=config.rssm_hidden, feat=config.encoder_feat, cats=config.rssm_stoch_categories, classes=config.rssm_stoch_classes).to(config.device)
-    decoder = CNNDecoder().to(config.device)
-    reward_head = RewardHead().to(config.device)
-    continue_head = ContinueHead().to(config.device)
-    actor = ActorHead(num_actions=config.num_actions).to(config.device)
-    critic = CriticHead().to(config.device)
+    feat = config.combined_feat
+    decoder = CNNDecoder(feat_dim=feat).to(config.device)
+    reward_head = RewardHead(feat_dim=feat).to(config.device)
+    continue_head = ContinueHead(feat_dim=feat).to(config.device)
+    actor = ActorHead(feat_dim=feat, num_actions=config.num_actions).to(config.device)
+    critic = CriticHead(feat_dim=feat, bins=config.critic_bins).to(config.device)
 
     rssm = RSSM(config, encoder, gru, prior, post, decoder, reward_head, continue_head)
     wm_optimizer = torch.optim.Adam(rssm.parameters(), lr=config.wm_lr)
     ac_optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=config.ac_lr)
 
     # EMA slow critic for stable value bootstrap
-    slow_critic = CriticHead(bins=config.critic_bins).to(config.device)
+    slow_critic = CriticHead(feat_dim=feat, bins=config.critic_bins).to(config.device)
     slow_critic.load_state_dict(critic.state_dict())  # init as copy of fast critic
     for p in slow_critic.parameters():
         p.requires_grad = False

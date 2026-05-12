@@ -9,14 +9,18 @@ class DreamerConfig:
     num_actions = 9
 
     # ── RSSM ──
-    rssm_hidden = 512
+    rssm_hidden = 1024
     rssm_stoch_categories = 32
     rssm_stoch_classes = 16
-    encoder_feat = 512
+    encoder_feat = 1024
     rssm_input = rssm_stoch_categories * rssm_stoch_classes + num_actions  # 521
 
+    @property
+    def combined_feat(self):
+        return self.rssm_hidden + self.rssm_stoch_categories * self.rssm_stoch_classes  # 1536
+
     # ── Training ──
-    total_env_steps = 10_000_000
+    total_env_steps = 5_000_000
     batch_size = 16             # paper default (8 was too small)
     seq_len = 64
     seed_steps = 5000
